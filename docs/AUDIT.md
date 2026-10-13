@@ -287,3 +287,34 @@ animation (motion is deliberately absent for a data-review tool).
 
 **Verdict:** ready to ship locally. Release mechanics and the 20-item gate live in
 `docs/SHIP_PLAN.md`.
+
+---
+
+## 8. Audit round 4 — `/audit` re-run with live browser tooling (2026-10-13)
+
+Method: fresh audit with headless Chromium (Playwright) — **axe-core 4.10.2**
+(executed through the DevTools channel; the page's CSP intentionally blocks CDN
+script injection, which was itself control-tested), performance timing, keyboard
+tab-order probes, and a 390×844 mobile reflow check of both pages.
+
+### Findings
+
+| # | Sev | Finding | Fix | Verified |
+| --- | --- | --- | --- | --- |
+| A-1 | **P1** (WCAG 1.4.10 Reflow) | The item page expanded to 791 px inside a 390 px viewport: the global `table { min-width }` rule leaked into `.meta` tables (only the index table sits in a scroll container) | `min-width` scoped to `.table-wrap table`; `table.meta { min-width: 0 }` added defensively | `scrollWidth == innerWidth == 390`, `pageOverflows: false` on both pages |
+| A-2 | P2 (WCAG 2.1.1; axe `scrollable-region-focusable`, serious) | The transcript scroller `.segments` could not be scrolled with the keyboard; same rule applied preemptively to `.table-wrap` when it overflows | `tabindex="0"` + `role="region"` + `aria-label` on both regions | axe: **0 violations** on desktop index/item and mobile item |
+| A-3 | Informational | axe `color-contrast` reported "incomplete" on mobile (cannot evaluate sticky/off-viewport nodes) | none — covered by the committed machine-checked contrast test (14 pairs, all ≥ 4.5, badges AAA) | test suite |
+
+### Controls verified live
+
+- **CSP blocks script injection**: a CDN `<script>` insert was refused by
+  `default-src 'none'` at runtime (recorded as evidence).
+- Console clean; visible focus ring on the first tab stop (screenshot); logical
+  tab order (downloads → filters → first row link).
+- Performance: DCL 45–82 ms · load 51–88 ms · 6.8–7.3 KB HTML · one 6 KB
+  stylesheet · zero JavaScript.
+
+### Score (audit-skill dimensions)
+
+Accessibility **4/4** · Performance **4/4** · Theming **4/4** · Responsive
+**4/4** · Anti-patterns **4/4** → **20/20 (Excellent)**.

@@ -388,6 +388,7 @@ a.title:hover {
 
 table.meta {
   width: 100%;
+  min-width: 0;
   border-collapse: collapse;
 }
 
@@ -502,7 +503,7 @@ details.panel pre {
     max-height: none;
   }
 
-  table {
+  .table-wrap table {
     min-width: 760px;
   }
 }

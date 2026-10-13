@@ -101,7 +101,7 @@
   {% if item.transcript_text %}
     {% if segments %}
     <p class="small">{{ segments|length }} timestamped segments</p>
-    <div class="segments">
+    <div class="segments" role="region" aria-label="Transcript segments" tabindex="0">
       <table class="meta" aria-label="Transcript segments">
         <tbody>
           {% for segment in segments %}
