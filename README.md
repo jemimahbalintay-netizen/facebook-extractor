@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-3dd68c?style=flat-square)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-0bd8b6?style=flat-square)](pyproject.toml)
-[![Tests: 199 checks](https://img.shields.io/badge/tests-199%20offline%20checks-3dd68c?style=flat-square)](#quality)
+[![Tests: 242 checks](https://img.shields.io/badge/tests-242%20offline%20checks-3dd68c?style=flat-square)](#quality)
 [![Lint: ruff · mypy strict](https://img.shields.io/badge/lint-ruff%20%C2%B7%20mypy%20strict-38bdf8?style=flat-square)](#quality)
 [![CI](https://github.com/jemimahbalintay-netizen/facebook-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/jemimahbalintay-netizen/facebook-extractor/actions/workflows/ci.yml)
 
@@ -36,11 +36,13 @@ A personal archiving and analysis tool for **publicly accessible** Facebook cont
 | 🔎 **URL intelligence** | Classifies `post` / `reel` / `video` / `homepage` / `malformed`, repairs duplicated share paths, tries both candidates |
 | 🎬 **Video & reel extraction** | yt-dlp under the hood: title, author, duration, views/likes/comments/shares, upload date, thumbnail, embedded subtitles |
 | 📝 **Transcript priority** | embedded subtitles → local Whisper (`faster-whisper`) → caption fallback → manual import; junk/hallucinated captions are discarded automatically |
+| 🔍 **Full-text search** | SQLite FTS5 index over titles, captions and transcripts — `main.py search "term"` with highlighted snippets, dashboard search box, `/items.json?q=` |
+| 🔁 **Resilient re-runs** | content hashes detect stale summaries (`summarize --stale`), failed URLs retry in one command (`ingest --retry-failed`), cron-safe batches (`ingest --skip-existing`) |
 | 🤖 **Bilingual AI summaries** | DeepSeek V4.1 Flash (NVIDIA NIM ready): English + Filipino summaries, key points, entities, sentiment, warnings; map-reduce for long transcripts |
 | 🗄️ **Local storage** | SQLite (WAL) + append-only JSONL + verified backups (`scripts/backup_db.py`, SQLite backup API) |
-| 📊 **Zero-JS dashboard** | FastAPI + server-rendered Jinja2, strict CSP, no scripts, accessible dark UI (contrast machine-checked) |
-| 📤 **Exports** | CSV (formula-injection guarded), Markdown report grouped by type, full JSON dump |
-| 🛡️ **Production habits** | 199 offline checks, ruff + strict mypy, pre-commit, pip-audit, secret-safe layout, restore drills |
+| 📊 **Zero-JS dashboard** | FastAPI + server-rendered Jinja2 with search, sortable columns and pagination; strict CSP, no scripts, accessible dark UI (contrast machine-checked) |
+| 📤 **Exports** | CSV, XLSX (items + summaries sheets) and JSON — all formula-injection guarded — plus a grouped Markdown report |
+| 🛡️ **Production habits** | 242 offline checks, ruff + strict mypy, pre-commit, pip-audit, secret-safe layout, restore drills, CI on Linux + Windows |
 
 ## Screenshots
 
@@ -101,11 +103,15 @@ Exact pins of the verified environment ship in `requirements-lock.txt` if you wa
 | `python main.py ingest --url URL` | one URL (repeatable) |
 | `python main.py ingest --all --transcribe` | also transcribe videos that lack subtitles (local Whisper) |
 | `python main.py ingest --all --summarize` | also generate AI summaries |
+| `python main.py ingest --retry-failed` | re-process URLs whose last extraction failed |
+| `python main.py ingest --all --skip-existing` | only new and failed URLs (ideal for scheduled runs) |
 | `python main.py summarize` | summarize stored items without re-fetching (`--all` re-does everything) |
+| `python main.py summarize --stale` | re-summarize only items whose content changed since their summary |
+| `python main.py search "term"` | full-text search across titles, captions and transcripts (`--json` supported) |
 | `python main.py manual-import --url URL --text-file caption.txt` | paste content Facebook wouldn't serve publicly |
-| `python main.py export --format csv\|markdown\|json\|all` | write `data/export_items.csv`, `data/report.md`, `data/export_items.json` |
+| `python main.py export --format csv\|xlsx\|markdown\|json\|all` | write exports into `data/` |
 | `python main.py status` | totals, flags, tool availability, latest items |
-| `python main.py serve` | local dashboard |
+| `python main.py serve` | local dashboard (search, sort, pagination built in) |
 | `python scripts/backup_db.py` | WAL-safe verified backup (keeps the newest 10) |
 
 ## Dashboard
@@ -141,8 +147,8 @@ Everything lives in `.env` (see `.env.example`); the interesting ones:
 
 ## Quality
 
-- **199 offline checks**: 90 unit (parsers/mapping), 54 audit (pipeline, security, data integrity), 55 dashboard (renders, headers, contrast) — all runnable without network or real data.
-- **Static analysis**: `ruff` 0 findings (documented ignores with rationale), `mypy` strict 0 errors across 30 files, `vulture` clean.
+- **242 offline checks**: 93 unit (parsers/mapping/hashing), 83 audit (pipeline, search, security, data integrity), 66 dashboard (renders, headers, contrast, search/sort/pagination) — all runnable without network or real data.
+- **Static analysis**: `ruff` 0 findings (documented ignores with rationale), `mypy` strict 0 errors across 32 files, `vulture` clean.
 - **Supply chain**: `pip-audit` clean, `pip check` clean, exact-pin lockfile, pre-commit hooks (tag-pinned).
 
 ```powershell
@@ -167,7 +173,8 @@ See [`docs/AUDIT.md`](docs/AUDIT.md) and [`docs/RESEARCH.md`](docs/RESEARCH.md) 
 | Document | Contents |
 |---|---|
 | [`docs/SHIP_PLAN.md`](docs/SHIP_PLAN.md) | 20-item pre-ship gate, rollback, release steps |
-| [`docs/AUDIT.md`](docs/AUDIT.md) | 3 audit rounds: findings, fixes, verified-safe areas, accepted risks |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | what shipped, what's next (v1.2 / v2.0), explicit non-goals |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | 4 audit rounds: findings, fixes, verified-safe areas, accepted risks |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | login walls, ffmpeg, whisper quality, API errors |
 | [`docs/RESEARCH.md`](docs/RESEARCH.md) | yt-dlp/Meta/NIM/Whisper facts with primary sources |
 | [`docs/ANTI_SLOP_RESEARCH.md`](docs/ANTI_SLOP_RESEARCH.md) | AI-slop failure classes and the pre-ship gate rationale |

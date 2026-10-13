@@ -1,4 +1,4 @@
-# Ship Plan — facebook-extractor v1.0 (local tool)
+# Ship Plan — facebook-extractor v1.1 (local tool)
 
 **Date:** 2026-10-13 · **Status:** feature-complete; audits complete; automated pre-ship
 gates green. Remaining items are release mechanics that need your decision (git/GitHub)
@@ -24,8 +24,8 @@ AI-slop/vibe-coding failure modes); the audit evidence lives in `docs/AUDIT.md`
 | --- | --- |
 | Items / summaries / transcript segments | 27 / 26 / 211 |
 | Needs manual import (truncated posts) | 7 (awaiting your paste) |
-| Offline checks | 199 (90 unit + 54 audit + 55 dashboard) |
-| Static analysis | ruff 0 · mypy 0 strict (29 files) · vulture 0 app hits |
+| Offline checks | 242 (93 unit + 83 audit + 66 dashboard) |
+| Static analysis | ruff 0 · mypy 0 strict (32 files) · vulture 0 app hits |
 | Dependencies | `pip-audit` clean · `pip check` clean · `requirements-lock.txt` (74 pins) |
 | DB | `PRAGMA integrity_check` ok · FK check clean · backup verified + restore drill passed |
 
@@ -33,7 +33,7 @@ AI-slop/vibe-coding failure modes); the audit evidence lives in `docs/AUDIT.md`
 
 | # | Item | How to verify | Status |
 | --- | --- | --- | --- |
-| 1 | Tests pass | `python tests\unit_tests.py` + `tests\audit_suite.py` + `tests\dashboard_tests.py` all exit 0 (199 checks) | ✅ |
+| 1 | Tests pass | `python tests\unit_tests.py` + `tests\audit_suite.py` + `tests\dashboard_tests.py` all exit 0 (242 checks) | ✅ |
 | 2 | Failure paths tested | bad URLs, malformed repair, HTTP 429/5xx/Retry-After, network errors, missing API key, invalid JSON, 404s | ✅ |
 | 3 | Lint clean | `python -m ruff check .` → 0; enforced by `.pre-commit-config.yaml` (tag-pinned) | ✅ |
 | 4 | Types clean | `python -m mypy .` → 0 errors in 29 files, strict (`disallow_untyped_defs`) | ✅ |

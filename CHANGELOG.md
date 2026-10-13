@@ -4,6 +4,47 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-10-13
+
+### Added
+
+- **Full-text search** — SQLite FTS5 index over titles, captions and transcripts
+  (external-content table kept in sync by triggers, `unicode61` tokenizer with
+  diacritic folding):
+  - `python main.py search "term" [--status S] [--type T] [--json]` with
+    relevance (bm25) ranking and highlighted snippets;
+  - dashboard search box and `?q=` support on `/` and `/items.json`;
+  - safe query handling — user input is always quoted (FTS operators and stray
+    punctuation cannot break the query).
+- **Dashboard: sorting and pagination** — sortable column headers with
+  `aria-sort` and a drawn (non-glyph) direction indicator, page-size support,
+  range counter ("1–50 of N") and previous/next links; still zero-JS.
+- **XLSX export** (`export --format xlsx`, `/export/xlsx`) — two sheets
+  (Items + Summaries), frozen headers, sized columns, formula-injection guard.
+- **Stale-summary detection** — `content_hash` per item plus `summarized_hash`
+  written with each summary; `python main.py summarize --stale` re-summarizes
+  only items whose content changed.
+- **Ingestion backlog flags** — `ingest --retry-failed [--include …]`
+  re-processes `needs_login` / `needs_manual_import` / `failed` URLs, and
+  `ingest --skip-existing` makes scheduled runs process only new and failed URLs.
+- **CI**: Python 3.14 added to the Linux matrix and a dedicated Windows job.
+
+### Fixed
+
+- **Search index upgrades** — pre-search databases now rebuild the FTS index
+  automatically on first use. The rebuild is detected via the
+  `items_fts_docsize` shadow table (a plain `COUNT(*)` on an external-content
+  FTS table reports content rows, not indexed rows) and runs inside the same
+  init pass — closing the window where update triggers could issue FTS5
+  `delete` commands for never-indexed values and corrupt the index.
+
+### Changed
+
+- Test suite: 199 → **242** offline checks (unit 93, audit 83, dashboard 66).
+- `openpyxl` added as a core dependency.
+
+[1.1.0]: https://github.com/jemimahbalintay-netizen/facebook-extractor/releases/tag/v1.1.0
+
 ## [1.0.0] — 2026-10-13
 
 First public release.
