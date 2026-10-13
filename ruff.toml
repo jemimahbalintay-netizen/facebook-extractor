@@ -1,0 +1,25 @@
+# Static-analysis configuration for facebook-extractor.
+# Run: .venv\Scripts\python.exe -m ruff check .
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B", "S", "BLE", "SIM", "UP", "I"]
+
+ignore = [
+    # SQL: every identifier is a constant or a whitelisted column name and all
+    # user data goes through bound parameters (reviewed in docs/AUDIT.md).
+    "S608",
+    # subprocess: argument lists only, shell=True is never used.
+    "S603",
+    # Best-effort fallbacks intentionally swallow errors (console
+    # reconfiguration, optional langdetect internals).
+    "S110",
+    # Broad excepts are deliberate at extractor boundaries so one bad URL can
+    # never kill a batch; failures are logged with logger.warning/exception.
+    "BLE001",
+]
+
+[lint.per-file-ignores]
+# Test suites legitimately use assert statements as safeguards.
+"tests/*" = ["S101"]

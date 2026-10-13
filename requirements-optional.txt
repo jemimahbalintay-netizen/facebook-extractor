@@ -1,0 +1,9 @@
+# Optional dependencies. The application degrades gracefully when these are
+# missing: transcription is disabled, browser fallback is skipped, and a small
+# built-in language heuristic replaces langdetect.
+
+faster-whisper>=1.1.0
+playwright>=1.49.0
+langdetect>=1.0.9
+pytest>=8.3.0
+pre-commit>=4.0

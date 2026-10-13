@@ -1,0 +1,36 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Secrets and credentials ----------------------------------------------
+# Never commit these. If a secret ever lands here, rotate it, then purge it
+# from history (see SECURITY.md).
+.env
+.env.*
+!.env.example
+cookies.txt
+
+# --- Local data: scraped content is never published ------------------------
+/data/*
+!/data/.gitkeep
+/logs/*
+!/logs/.gitkeep
+/captions/
+*.db
+*.db-wal
+*.db-shm
+
+# --- OS noise --------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Facebook Extractor Dashboard</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+<header class="page-head">
+  <div>
+    <h1>Facebook Extractor</h1>
+    <p class="small">Public metadata, transcripts and AI summaries extracted locally.</p>
+  </div>
+  <nav aria-label="Downloads">
+    <a href="/export/csv">Download CSV</a>
+    <a href="/export/markdown">Download Markdown</a>
+    <a href="/export/json">Download JSON</a>
+    <a href="/items.json">items.json</a>
+  </nav>
+</header>
+
+<p class="status-strip">
+  <span class="metric"><span class="value">{{ stats['items'] }}</span> <span class="label">items</span></span>
+  <span class="metric"><span class="value">{{ stats['with_transcript'] }}</span> <span class="label">with transcript</span></span>
+  <span class="metric"><span class="value">{{ stats['summaries'] }}</span> <span class="label">AI summaries</span></span>
+  <span class="metric"><span class="value">{{ stats['needs_login'] }}</span> <span class="label">need login</span></span>
+  <span class="metric{% if stats['needs_manual_import'] %} attention{% endif %}"><span class="value">{{ stats['needs_manual_import'] }}</span> <span class="label">need manual import</span></span>
+</p>
+
+<form class="filters" method="get" action="/">
+  <label>Status
+    <select name="status" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for s in ['extracted', 'partial', 'needs_login', 'needs_manual_import', 'failed', 'skipped', 'pending'] %}
+      <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Type
+    <select name="content_type" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for t in ['video', 'reel', 'post', 'malformed', 'unknown', 'homepage'] %}
+      <option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% if filter_status or filter_type %}
+  <a class="clear-filters" href="/">Clear filters</a>
+  {% endif %}
+  <noscript><button type="submit">Apply filters</button></noscript>
+</form>
+
+{% if items %}
+<div class="table-wrap">
+  <table aria-label="Extracted items">
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Type</th>
+        <th scope="col">Title</th>
+        <th scope="col">Author</th>
+        <th scope="col">Status</th>
+        <th scope="col">Login</th>
+        <th scope="col">Manual</th>
+        <th scope="col">Duration</th>
+        <th scope="col">Views</th>
+        <th scope="col">Extracted at</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.id }}</td>
+        <td>{{ item.content_type }}</td>
+        <td>
+          <a class="title" href="/item/{{ item.id }}">{{ item.title or (item.caption and truncate(item.caption, 80)) or '(no title)' }}</a>
+          {% if item.summary and item.summary.short_title %}
+          <div class="small">AI: {{ item.summary.short_title }}</div>
+          {% endif %}
+          {% if item.transcript_text %}
+          <div class="small">transcript: {{ item.transcript_source }} ({{ item.transcript_text|length }} chars)</div>
+          {% endif %}
+        </td>
+        <td>{{ item.author or item.page_name or 'missing' }}</td>
+        <td><span class="tag s-{{ item.status }}">{{ item.status }}</span></td>
+        <td class="{{ 'flag-yes' if item.needs_login else 'flag-no' }}">{{ 'yes' if item.needs_login else 'no' }}</td>
+        <td class="{{ 'flag-yes' if item.needs_manual_import else 'flag-no' }}">{{ 'yes' if item.needs_manual_import else 'no' }}</td>
+        <td>{{ humanize_duration(item.duration_seconds) }}</td>
+        <td>{{ humanize_number(item.view_count) }}</td>
+        <td>{% if item.extracted_at %}<time class="time" datetime="{{ item.extracted_at }}">{{ item.extracted_at[:16].replace('T', ' ') }}</time>{% else %}missing{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="panel empty">
+  No items yet. Run <code>python main.py ingest --file seed_urls.txt</code> first.
+</div>
+{% endif %}
+</main>
+</body>
+</html>

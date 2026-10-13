@@ -1,0 +1,50 @@
+[project]
+name = "facebook-extractor"
+version = "1.0.0"
+description = "Local-first Facebook content extractor: public metadata, captions, local Whisper transcripts and bilingual AI summaries with a zero-JS dashboard."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Isaac G. Balintay" }]
+keywords = [
+  "facebook",
+  "yt-dlp",
+  "transcripts",
+  "faster-whisper",
+  "summarization",
+  "sqlite",
+  "local-first",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Video",
+  "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+  "yt-dlp>=2024.12.13",
+  "requests>=2.32.0",
+  "fastapi>=0.115.0",
+  "uvicorn>=0.32.0",
+  "jinja2>=3.1.4",
+  "pydantic>=2.9.0",
+  "rich>=13.9.0",
+  "python-dotenv>=1.0.1",
+  "openai>=1.54.0",
+]
+
+[project.optional-dependencies]
+transcription = ["faster-whisper>=1.1.0", "langdetect>=1.0.9"]
+browser = ["playwright>=1.49.0"]
+dev = ["pre-commit>=4.0", "pytest>=8.3.0"]
+
+[project.urls]
+Repository = "https://github.com/jemimahbalintay-netizen/facebook-extractor"
+Changelog = "https://github.com/jemimahbalintay-netizen/facebook-extractor/blob/main/CHANGELOG.md"
+Security = "https://github.com/jemimahbalintay-netizen/facebook-extractor/security/policy"

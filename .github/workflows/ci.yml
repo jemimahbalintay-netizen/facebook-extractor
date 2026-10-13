@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install tools and runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "ruff==0.17.0" "mypy==2.4.0" pip-audit vulture
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Mypy (strict types)
+        run: mypy .
+
+      - name: Dependency audit
+        run: |
+          pip-audit
+          pip check
+
+      - name: Dead code (app only)
+        run: vulture . --exclude ".venv,tests" --min-confidence 80
+
+  tests:
+    name: offline suites (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install langdetect
+
+      - name: Unit tests (90 checks)
+        run: python tests/unit_tests.py
+
+      - name: Audit suite (54 checks)
+        run: python tests/audit_suite.py
+
+      - name: Dashboard tests (55 checks)
+        run: python tests/dashboard_tests.py

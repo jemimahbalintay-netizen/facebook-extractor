@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Item {{ item.id }} - Facebook Extractor</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+{% set duration = humanize_duration(item.duration_seconds) %}
+{% set views = humanize_number(item.view_count) %}
+{% set likes = humanize_number(item.like_count) %}
+{% set comments = humanize_number(item.comment_count) %}
+{% set shares = humanize_number(item.share_count) %}
+{% set transcript = item.transcript_source or 'none' %}
+
+<a class="back" href="/">Back to all items</a>
+<h1>
+  {{ item.title or '(no title)' }}
+  <span class="tag s-{{ item.status }}">{{ item.status }}</span>
+</h1>
+<p class="small">
+  Item #{{ item.id }} ·
+  <a href="{{ item.source_url }}" target="_blank" rel="noopener">Open on Facebook</a>
+  {% if item.resolved_url and item.resolved_url != item.source_url %} ·
+  <a href="{{ item.resolved_url }}" target="_blank" rel="noopener">Resolved URL</a>{% endif %}
+</p>
+
+{% if item.error_message %}
+<div class="panel"><strong class="err">Extraction note:</strong> {{ item.error_message }}</div>
+{% endif %}
+
+<p class="status-strip">
+  <span class="metric"><span class="value{{ ' missing' if duration == 'missing' }}">{{ duration }}</span> <span class="label">duration</span></span>
+  <span class="metric"><span class="value{{ ' missing' if views == 'missing' }}">{{ views }}</span> <span class="label">views</span></span>
+  <span class="metric"><span class="value{{ ' missing' if likes == 'missing' }}">{{ likes }}</span> <span class="label">likes</span></span>
+  <span class="metric"><span class="value{{ ' missing' if comments == 'missing' }}">{{ comments }}</span> <span class="label">comments</span></span>
+  <span class="metric"><span class="value{{ ' missing' if shares == 'missing' }}">{{ shares }}</span> <span class="label">shares</span></span>
+  <span class="metric"><span class="value{{ ' missing' if transcript == 'none' }}">{{ transcript }}</span> <span class="label">transcript</span></span>
+</p>
+
+<h2>Metadata</h2>
+<div class="panel">
+  <table class="meta">
+    <tbody>
+      <tr><th scope="row">Content type</th><td>{{ item.content_type }}{% if item.malformed %} (malformed URL — repaired candidate attempted){% endif %}</td></tr>
+      <tr><th scope="row">Facebook content ID</th><td>{{ item.content_id or 'missing' }}</td></tr>
+      <tr><th scope="row">Author / Page</th><td>{{ item.author or 'missing' }} / {{ item.page_name or 'missing' }}</td></tr>
+      <tr><th scope="row">Upload date</th><td>{{ item.upload_date or 'missing' }}</td></tr>
+      <tr><th scope="row">Language</th><td>{{ item.language or 'unknown' }}</td></tr>
+      <tr><th scope="row">Transcript</th><td>{{ item.transcript_source }}{% if item.transcript_language %} ({{ item.transcript_language }}){% endif %}, {{ (item.transcript_text or '')|length }} characters</td></tr>
+      <tr><th scope="row">Hashtags</th><td>{% for tag in item.hashtags %}#{{ tag }} {% else %}missing{% endfor %}</td></tr>
+      <tr><th scope="row">Mentions</th><td>{% for mention in item.mentions %}@{{ mention }} {% else %}missing{% endfor %}</td></tr>
+      <tr><th scope="row">External links</th><td>{% for link in item.external_links %}<a href="{{ link }}" target="_blank" rel="noopener">{{ truncate(link, 70) }}</a><br>{% else %}missing{% endfor %}</td></tr>
+      <tr><th scope="row">Thumbnail</th><td>{% if item.thumbnail_url %}<a href="{{ item.thumbnail_url }}" target="_blank" rel="noopener">{{ truncate(item.thumbnail_url, 90) }}</a>{% else %}missing{% endif %}</td></tr>
+      <tr><th scope="row">Media URL</th><td>{% if item.media_url %}<a href="{{ item.media_url }}" target="_blank" rel="noopener">{{ truncate(item.media_url, 90) }}</a>{% else %}missing{% endif %}</td></tr>
+      <tr><th scope="row">Flags</th><td>needs_login={{ 'yes' if item.needs_login else 'no' }} · needs_manual_import={{ 'yes' if item.needs_manual_import else 'no' }} · malformed={{ 'yes' if item.malformed else 'no' }}</td></tr>
+      <tr><th scope="row">Extracted at</th><td>{% if item.extracted_at %}<time datetime="{{ item.extracted_at }}">{{ item.extracted_at }}</time>{% else %}missing{% endif %}</td></tr>
+      <tr><th scope="row">Summarized at</th><td>{{ item.summarized_at or 'not summarized' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Caption / post text</h2>
+<div class="panel">
+  {% if item.caption %}<blockquote>{{ item.caption }}</blockquote>{% else %}<span class="small">No caption captured. Use manual import to paste it.</span>{% endif %}
+</div>
+
+<h2>AI Summary</h2>
+<div class="panel">
+  {% if summary %}
+  <p><strong>{{ summary.short_title }}</strong> <span class="small">({{ summary.model }})</span></p>
+  <p><strong>English:</strong> {{ summary.english_summary }}</p>
+  <p><strong>Filipino:</strong> {{ summary.filipino_summary }}</p>
+  {% if summary.key_points %}
+  <strong>Key points</strong>
+  <ul>{% for point in summary.key_points %}<li>{{ point }}</li>{% endfor %}</ul>
+  {% endif %}
+  <table class="meta">
+    <tbody>
+      <tr><th scope="row">Topics</th><td>{{ summary.topics|join(', ') or 'missing' }}</td></tr>
+      <tr><th scope="row">Entities</th><td>{{ summary.entities|join(', ') or 'missing' }}</td></tr>
+      <tr><th scope="row">Sentiment</th><td>{{ summary.sentiment or 'missing' }}</td></tr>
+      <tr><th scope="row">Virality signals</th><td>{{ summary.virality_signals|join(', ') or 'missing' }}</td></tr>
+      <tr><th scope="row">Content warnings</th><td>{{ summary.content_warnings|join(', ') or 'none' }}</td></tr>
+      <tr><th scope="row">Suggested tags</th><td>{{ summary.suggested_tags|join(', ') or 'missing' }}</td></tr>
+      <tr><th scope="row">Call to action</th><td>{{ summary.call_to_action or 'none' }}</td></tr>
+    </tbody>
+  </table>
+  <p class="small">Created at {{ summary.created_at }}</p>
+  {% else %}
+  <span class="small">No summary yet. Run <code>python main.py summarize --url {{ item.source_url }}</code> (requires DEEPSEEK_API_KEY).</span>
+  {% endif %}
+</div>
+
+<h2>Transcript</h2>
+<div class="panel">
+  {% if item.transcript_text %}
+    {% if segments %}
+    <p class="small">{{ segments|length }} timestamped segments</p>
+    <div class="segments">
+      <table class="meta" aria-label="Transcript segments">
+        <tbody>
+          {% for segment in segments %}
+          <tr>
+            <th scope="row" class="time-cell">{{ '%.2f'|format(segment.start_seconds or 0) }}s</th>
+            <td>{{ segment.text }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <blockquote>{{ item.transcript_text }}</blockquote>
+    {% endif %}
+  {% else %}
+  <span class="small">No transcript. Enable transcription with <code>--transcribe</code> or import one manually.</span>
+  {% endif %}
+</div>
+
+<h2>Raw JSON</h2>
+<details class="panel">
+  <summary>Show the stored item record</summary>
+  <pre>{{ item | tojson(indent=2) }}</pre>
+</details>
+</main>
+</body>
+</html>

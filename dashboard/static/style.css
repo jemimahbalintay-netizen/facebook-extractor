@@ -1,0 +1,508 @@
+/* facebook-extractor dashboard — shared stylesheet for every page.
+ *
+ * Palette: Radix Colors dark scales (https://www.radix-ui.com/colors, MIT).
+ * Radix steps are role-defined, which is why this UI uses them verbatim
+ * instead of hand-picked hexes:
+ *
+ *   slate-1  app background          slate-6  subtle borders/separators
+ *   slate-2  panel background        slate-11 low-contrast text (muted)
+ *   slate-3  UI element background   slate-12 high-contrast text
+ *   slate-4  hovered element         teal-9   focus ring (non-text, >=3:1)
+ *   green/amber/red step 3 + 11      status badges (text on tinted background)
+ *
+ * Every text pair below measures AAA (7.6:1–16.3:1) and the focus ring
+ * measures 5.7:1 — verified by the contrast check in docs/AUDIT.md (F-11/F-21).
+ * Numbers use tabular figures so counts and timestamps align in columns.
+ * There is intentionally no animation: this is a data-review tool.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Radix Colors — dark theme scales */
+  --slate-1: #111113;
+  --slate-2: #18191b;
+  --slate-3: #212225;
+  --slate-4: #272a2d;
+  --slate-6: #363a3f;
+  --slate-11: #b0b4ba;
+  --slate-12: #edeef0;
+  --teal-5: #084843;
+  --teal-9: #12a594;
+  --teal-11: #0bd8b6;
+  --green-3: #132d21;
+  --green-11: #3dd68c;
+  --amber-3: #302008;
+  --amber-11: #ffca16;
+  --red-3: #3b1219;
+  --red-11: #ff9592;
+
+  /* semantic roles */
+  --bg: var(--slate-1);
+  --panel: var(--slate-2);
+  --panel2: var(--slate-3);
+  --hover: var(--slate-4);
+  --border: var(--slate-6);
+  --text: var(--slate-12);
+  --muted: var(--slate-11);
+  --accent: var(--teal-11);
+  --selection: var(--teal-5);
+  --ok-text: var(--green-11);
+  --ok-bg: var(--green-3);
+  --warn-text: var(--amber-11);
+  --warn-bg: var(--amber-3);
+  --bad-text: var(--red-11);
+  --bad-bg: var(--red-3);
+  --neutral-text: var(--slate-11);
+  --neutral-bg: var(--slate-3);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--teal-9);
+}
+
+/* --- browser surfaces: selection, focus, scrollbars, caret -------------- */
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 5px;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+html {
+  scrollbar-color: var(--border) var(--bg);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- base --------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-variant-numeric: tabular-nums;
+  accent-color: var(--accent);
+  caret-color: var(--accent);
+}
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 28px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+code {
+  background: var(--panel2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+p {
+  margin: 6px 0;
+}
+
+ul {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+/* --- page header -------------------------------------------------------- */
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.page-head nav a {
+  margin-right: 14px;
+  font-weight: 600;
+}
+
+.page-head nav a:last-child {
+  margin-right: 0;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+/* --- metric strip (page summary and item facts) ------------------------- */
+
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin: 0 0 16px;
+}
+
+.status-strip .metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0 16px;
+}
+
+.status-strip .metric + .metric {
+  border-left: 1px solid var(--border);
+}
+
+.status-strip .metric:first-child {
+  padding-left: 0;
+}
+
+.status-strip .metric:last-child {
+  padding-right: 0;
+}
+
+.status-strip .value {
+  font-weight: 700;
+}
+
+.status-strip .value.missing {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.status-strip .metric.attention .value {
+  color: var(--warn-text);
+}
+
+.status-strip .label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --- filters ------------------------------------------------------------ */
+
+form.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+form.filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+select,
+button {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  min-height: 38px;
+  font-size: 14px;
+}
+
+button {
+  cursor: pointer;
+}
+
+select:hover,
+button:hover {
+  border-color: var(--accent);
+}
+
+.clear-filters {
+  font-size: 13px;
+}
+
+/* --- data tables -------------------------------------------------------- */
+
+.table-wrap {
+  max-height: 72vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+tbody tr:hover td {
+  background: var(--hover);
+}
+
+a.title {
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+a.title:hover {
+  color: var(--accent);
+}
+
+.time {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* --- status badges (AAA contrast on tinted backgrounds) ----------------- */
+
+.tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.s-extracted {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.s-partial {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.s-needs_login,
+.s-needs_manual_import,
+.s-failed {
+  background: var(--bad-bg);
+  color: var(--bad-text);
+}
+
+.s-skipped,
+.s-pending {
+  background: var(--neutral-bg);
+  color: var(--neutral-text);
+}
+
+.flag-yes {
+  color: var(--warn-text);
+  font-weight: 700;
+}
+
+.flag-no {
+  color: var(--muted);
+}
+
+/* --- panels, metadata, content ------------------------------------------ */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+}
+
+table.meta {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.meta th {
+  width: 200px;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+table.meta td {
+  padding: 5px 8px;
+  overflow-wrap: anywhere;
+}
+
+blockquote {
+  margin: 8px 0;
+  padding: 10px 14px;
+  background: var(--panel2);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  margin: 0;
+  padding: 12px;
+  background: var(--slate-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 13px;
+  max-height: 480px;
+}
+
+.segments {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.segments .time-cell {
+  width: 90px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+details.panel > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+details.panel > summary:hover {
+  color: var(--text);
+}
+
+details.panel pre {
+  margin-top: 12px;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.err {
+  color: var(--bad-text);
+}
+
+/* --- responsive --------------------------------------------------------- */
+
+/* Motion policy: this dashboard ships zero animation. Any future motion must
+   be a single authored moment, gated behind this guard (WCAG 2.3.3 / craft
+   floor: no scattered effects). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 14px;
+  }
+
+  .status-strip {
+    padding: 10px 12px;
+  }
+
+  .status-strip .metric {
+    padding: 0 10px;
+  }
+
+  select,
+  button {
+    min-height: 44px;
+  }
+
+  .table-wrap {
+    max-height: none;
+  }
+
+  table {
+    min-width: 760px;
+  }
+}

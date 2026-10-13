@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 88" role="img" aria-label="facebook-extractor — local-first Facebook content extractor">
+  <rect x="4" y="12" width="64" height="64" rx="14" fill="#18191b" stroke="#363a3f" stroke-width="1"/>
+  <rect x="18" y="30" width="36" height="7" rx="3.5" fill="#0bd8b6"/>
+  <rect x="18" y="41" width="28" height="7" rx="3.5" fill="#b0b4ba"/>
+  <rect x="18" y="52" width="18" height="7" rx="3.5" fill="#5a6169"/>
+  <text x="88" y="44" font-family="Segoe UI, system-ui, -apple-system, sans-serif" font-size="27" font-weight="600" letter-spacing="-0.5" fill="#111113">facebook-extractor</text>
+  <text x="89" y="66" font-family="Segoe UI, system-ui, -apple-system, sans-serif" font-size="13" fill="#60646c">public metadata · transcripts · bilingual AI summaries</text>
+</svg>
