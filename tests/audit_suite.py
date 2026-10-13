@@ -28,7 +28,9 @@ sys.path.insert(0, str(PROJECT))
 scratch_dir = Path(tempfile.mkdtemp(prefix="fbx_audit_"))
 scratch_db = scratch_dir / "audit.db"
 real_db = PROJECT / "data" / "facebook_content.db"
-if real_db.exists():
+# The suite must pass with or without a real database present: CI has none.
+# Set AUDIT_SYNTHETIC_ONLY=1 to force the no-source-database mode locally.
+if real_db.exists() and os.environ.get("AUDIT_SYNTHETIC_ONLY") != "1":
     shutil.copy2(real_db, scratch_db)
 os.environ["DATABASE_PATH"] = str(scratch_db)
 os.environ["DEEPSEEK_API_KEY"] = ""  # keep the suite fully offline
@@ -515,12 +517,22 @@ check("re-summarising clears staleness", search_id not in stale_summary_item_ids
 
 update_item_fields(db_path=settings.database_path, item_id=post_id, status="needs_login")
 check("failed_urls picks retryable statuses", search_post.source_url in failed_urls(settings.database_path))
+
+# Dedicated fixture: the suite must not depend on pre-existing database rows.
+retry_fixture = ExtractedItem(
+    source_url="https://www.facebook.com/audit/retry-partial",
+    content_type="post",
+    status="partial",
+    caption="truncated preview awaiting manual import...",
+    needs_manual_import=True,
+)
+upsert_item(retry_fixture, settings.database_path)
 status_map = existing_statuses(settings.database_path)
 custom_partial = failed_urls(settings.database_path, ["partial"])
 check(
     "failed_urls honours custom statuses",
-    search_post.source_url not in custom_partial
-    and len(custom_partial) >= 1
+    retry_fixture.source_url in custom_partial
+    and search_post.source_url not in custom_partial
     and all(status_map.get(url) == "partial" for url in custom_partial),
     f"{len(custom_partial)} partial urls",
 )
