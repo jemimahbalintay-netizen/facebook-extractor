@@ -4,10 +4,13 @@ Commands:
     python main.py ingest --all [--transcribe] [--summarize]
     python main.py ingest --url URL
     python main.py ingest --file seed_urls.txt
-    python main.py summarize [--all] [--url URL] [--limit N]
+    python main.py ingest --retry-failed [--include needs_login,...]
+    python main.py ingest --all --skip-existing
+    python main.py summarize [--all] [--stale] [--url URL] [--limit N]
+    python main.py search "query" [--status S] [--type T] [--json]
     python main.py manual-import --url URL --text-file caption.txt
     python main.py manual-import --url URL --json-file metadata.json
-    python main.py export --format csv|markdown|json|all
+    python main.py export --format csv|markdown|json|xlsx|all
     python main.py serve [--host 127.0.0.1] [--port 8765]
     python main.py status
 """
@@ -32,16 +35,22 @@ from config import (
     load_settings,
     setup_logging,
 )
-from database import database_stats, list_items
+from database import database_stats, failed_urls, list_items, search_items
 from export.csv_exporter import export_csv
 from export.json_exporter import export_json
 from export.markdown_exporter import export_markdown
+from export.xlsx_exporter import export_xlsx
 from extractor.manual_extractor import (
     ManualImportError,
     read_json_file,
     read_text_file,
 )
-from extractor.pipeline import ingest_urls, load_urls_from_file, manual_import
+from extractor.pipeline import (
+    filter_existing_urls,
+    ingest_urls,
+    load_urls_from_file,
+    manual_import,
+)
 from extractor.transcript_extractor import faster_whisper_installed
 from utils import truncate
 
@@ -96,15 +105,40 @@ def cmd_ingest(args: argparse.Namespace, settings: Settings) -> int:
         urls.extend(load_urls_from_file(args.file))
     if args.all:
         urls.extend(load_urls_from_file(settings.seed_file))
-    if not args.url and not args.file and not args.all:
+    if getattr(args, "retry_failed", False):
+        statuses = [
+            status.strip()
+            for status in (
+                args.include or "needs_login,needs_manual_import,failed"
+            ).split(",")
+            if status.strip()
+        ]
+        retry_urls = failed_urls(settings.database_path, statuses)
+        console.print(
+            f"Retrying [bold]{len(retry_urls)}[/bold] URL(s) with status in "
+            f"{', '.join(statuses)}"
+        )
+        urls.extend(retry_urls)
+    if (
+        not args.url
+        and not args.file
+        and not args.all
+        and not getattr(args, "retry_failed", False)
+    ):
         console.print(
             "[yellow]No source given; defaulting to seed_urls.txt "
-            "(use --url, --file or --all).[/yellow]"
+            "(use --url, --file, --all or --retry-failed).[/yellow]"
         )
         urls.extend(load_urls_from_file(settings.seed_file))
 
     # De-duplicate while preserving order.
     urls = list(dict.fromkeys(urls))
+
+    if getattr(args, "skip_existing", False) and urls:
+        urls, skipped = filter_existing_urls(urls, settings)
+        if skipped:
+            console.print(f"Skipping {skipped} URL(s) that already have content.")
+
     if not urls:
         console.print("[red]No URLs to process.[/red]")
         return 2
@@ -218,17 +252,24 @@ def cmd_summarize(args: argparse.Namespace, settings: Settings) -> int:
         )
         return 2
 
+    if getattr(args, "stale", False):
+        mode_text = "re-summarizing only items whose content changed"
+    elif args.all:
+        mode_text = "re-summarizing everything"
+    else:
+        mode_text = "only items without a summary"
     console.print(
         f"Summarizing stored items with [bold]{settings.deepseek_model}[/bold] "
         f"via {settings.deepseek_base_url} (delay {args.delay:g}s between calls, "
-        f"{'re-summarizing everything' if args.all else 'only items without a summary'})"
+        f"{mode_text})"
     )
     results = summarize_pending(
         settings,
         urls=args.url,
         limit=args.limit,
-        missing_only=not args.all,
+        missing_only=not (args.all or getattr(args, "stale", False)),
         delay_seconds=args.delay,
+        stale_only=bool(getattr(args, "stale", False)),
     )
 
     table = Table(title="Summarisation results")
@@ -294,14 +335,59 @@ def cmd_manual_import(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace, settings: Settings) -> int:
+    results = search_items(
+        args.query,
+        settings.database_path,
+        limit=args.limit,
+        status=getattr(args, "status", None),
+        content_type=getattr(args, "content_type", None),
+    )
+
+    if getattr(args, "json_output", False):
+        import json as _json
+
+        print(_json.dumps(results, ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    if not results:
+        console.print(f"[yellow]No matches for {args.query!r}.[/yellow]")
+        return 0
+
+    table = Table(title=f"Search: {args.query!r} — {len(results)} result(s)")
+    table.add_column("ID", justify="right")
+    table.add_column("Type")
+    table.add_column("Status")
+    table.add_column("Title", max_width=34)
+    table.add_column("Author", max_width=18)
+    table.add_column("Match snippet", max_width=56)
+    for record in results:
+        snippet = (
+            record.get("transcript_snippet")
+            or record.get("caption_snippet")
+            or ""
+        )
+        table.add_row(
+            str(record.get("id", "")),
+            str(record.get("content_type", "")),
+            _status_text(str(record.get("status", ""))),
+            truncate(record.get("title") or "(no title)", 32),
+            truncate(record.get("author") or record.get("page_name") or "-", 16),
+            truncate(str(snippet), 54),
+        )
+    console.print(table)
+    return 0
+
+
 def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
     fmt = args.format
-    formats = ["csv", "markdown", "json"] if fmt == "all" else [fmt]
+    formats = ["csv", "markdown", "json", "xlsx"] if fmt == "all" else [fmt]
 
     exporters = {
         "csv": ("CSV", export_csv),
         "markdown": ("Markdown", export_markdown),
         "json": ("JSON", export_json),
+        "xlsx": ("XLSX", export_xlsx),
     }
     for name in formats:
         label, exporter = exporters[name]
@@ -432,6 +518,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--summarize", action="store_true", help="generate DeepSeek AI summaries"
     )
     ingest.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="re-process URLs whose last extraction failed "
+        "(needs_login / needs_manual_import / failed)",
+    )
+    ingest.add_argument(
+        "--include",
+        metavar="STATUSES",
+        help="statuses considered by --retry-failed "
+        "(default: needs_login,needs_manual_import,failed)",
+    )
+    ingest.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="skip URLs that already have content; only new and failed URLs "
+        "are processed (ideal for scheduled runs)",
+    )
+    ingest.add_argument(
         "--limit", type=int, metavar="N", help="only process the first N URLs"
     )
 
@@ -452,6 +556,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="re-summarize items that already have a summary "
         "(default: only items missing one)",
     )
+    summarize.add_argument(
+        "--stale",
+        action="store_true",
+        help="re-summarize only items whose stored content changed after "
+        "their summary was generated",
+    )
     summarize.add_argument("--limit", type=int, metavar="N")
     summarize.add_argument(
         "--delay",
@@ -459,6 +569,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         metavar="SECONDS",
         help="pause between API calls (default: 1s)",
+    )
+
+    search = subparsers.add_parser(
+        "search", help="full-text search over titles, captions and transcripts"
+    )
+    search.add_argument("query", help="search terms (whitespace = AND, suffix * = prefix)")
+    search.add_argument("--status", metavar="STATUS", help="restrict to one status")
+    search.add_argument(
+        "--type", dest="content_type", metavar="TYPE", help="restrict to one content type"
+    )
+    search.add_argument(
+        "--limit", type=int, default=25, metavar="N", help="maximum results (default 25)"
+    )
+    search.add_argument(
+        "--json", dest="json_output", action="store_true", help="print JSON"
     )
 
     manual = subparsers.add_parser(
@@ -479,7 +604,7 @@ def build_parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export", help="export the database")
     export.add_argument(
         "--format",
-        choices=["csv", "markdown", "json", "all"],
+        choices=["csv", "markdown", "json", "xlsx", "all"],
         default="all",
         help="output format (default: all)",
     )
@@ -511,6 +636,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_ingest(args, settings)
         if args.command == "summarize":
             return cmd_summarize(args, settings)
+        if args.command == "search":
+            return cmd_search(args, settings)
         if args.command == "manual-import":
             return cmd_manual_import(args, settings)
         if args.command == "export":

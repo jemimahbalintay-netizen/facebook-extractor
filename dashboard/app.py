@@ -9,6 +9,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -18,15 +19,20 @@ from starlette.responses import Response
 
 from config import Settings, load_settings
 from database import (
+    SORTABLE_COLUMNS,
     database_stats,
     get_item,
     get_summary,
     get_transcript_segments,
     items_with_summaries,
+    list_items_page,
+    search_items,
+    summaries_for_ids,
 )
 from export.csv_exporter import export_csv
 from export.json_exporter import export_json
 from export.markdown_exporter import export_markdown
+from export.xlsx_exporter import export_xlsx
 from utils import humanize_duration, humanize_number, truncate
 
 logger = logging.getLogger(__name__)
@@ -39,7 +45,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # the intended interface.  /openapi.json stays available for tooling.
 app = FastAPI(
     title="Facebook Extractor Dashboard",
-    version="1.0.0",
+    version="1.1.0",
     docs_url=None,
     redoc_url=None,
 )
@@ -88,21 +94,73 @@ def index(
     request: Request,
     status: str | None = None,
     content_type: str | None = None,
+    q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
 ) -> HTMLResponse:
     settings = get_settings()
-    items = items_with_summaries(
-        settings.database_path,
-        content_type=content_type or None,
-        status=status or None,
+    sort_key = sort if sort in SORTABLE_COLUMNS else "id"
+    descending = (order or "desc").lower() != "asc"
+    per_page = min(max(1, per_page), 200)
+    page = max(1, page)
+    offset = (page - 1) * per_page
+
+    query_text = (q or "").strip()
+    if query_text:
+        # Relevance-ranked search; sort links do not apply to ranked results.
+        found = search_items(
+            query_text,
+            settings.database_path,
+            limit=500,
+            status=status or None,
+            content_type=content_type or None,
+        )
+        total = len(found)
+        items = found[offset : offset + per_page]
+    else:
+        items, total = list_items_page(
+            settings.database_path,
+            content_type=content_type or None,
+            status=status or None,
+            sort=sort_key,
+            descending=descending,
+            limit=per_page,
+            offset=offset,
+        )
+
+    summaries = summaries_for_ids(
+        [item["id"] for item in items], settings.database_path
     )
-    items = list(reversed(items))  # newest first
-    stats = database_stats(settings.database_path)
+    for item in items:
+        item["summary"] = summaries.get(int(item["id"]))
+
+    base: dict[str, str] = {}
+    if query_text:
+        base["q"] = query_text
+    if status:
+        base["status"] = status
+    if content_type:
+        base["content_type"] = content_type
+    base_params = urlencode(base)
+
+    pages = max(1, (total + per_page - 1) // per_page)
     context: dict[str, Any] = {
         "request": request,
         "items": items,
-        "stats": stats,
+        "stats": database_stats(settings.database_path),
         "filter_status": status or "",
         "filter_type": content_type or "",
+        "q": query_text,
+        "sort": sort_key,
+        "order": "desc" if descending else "asc",
+        "page": page,
+        "pages": pages,
+        "total": total,
+        "base_params": base_params,
+        "show_from": (offset + 1) if total else 0,
+        "show_to": min(offset + per_page, total),
     }
     return templates.TemplateResponse(
         request=request, name="index.html", context=context
@@ -130,18 +188,29 @@ def item_detail(request: Request, item_id: int) -> HTMLResponse:
 
 @app.get("/items.json")
 def items_json(
-    status: str | None = None, content_type: str | None = None
+    status: str | None = None,
+    content_type: str | None = None,
+    q: str | None = None,
 ) -> JSONResponse:
     settings = get_settings()
-    items = items_with_summaries(
-        settings.database_path,
-        content_type=content_type or None,
-        status=status or None,
-    )
+    query_text = (q or "").strip()
+    if query_text:
+        items = search_items(
+            query_text,
+            settings.database_path,
+            limit=500,
+            status=status or None,
+            content_type=content_type or None,
+        )
+    else:
+        items = items_with_summaries(
+            settings.database_path,
+            content_type=content_type or None,
+            status=status or None,
+        )
+        items = list(reversed(items))
     stats = database_stats(settings.database_path)
-    return JSONResponse(
-        {"stats": stats, "count": len(items), "items": list(reversed(items))}
-    )
+    return JSONResponse({"stats": stats, "count": len(items), "items": items})
 
 
 @app.get("/export/csv")
@@ -174,6 +243,17 @@ def export_json_route() -> FileResponse:
         path,
         media_type="application/json",
         filename="export_items.json",
+    )
+
+
+@app.get("/export/xlsx")
+def export_xlsx_route() -> FileResponse:
+    settings = get_settings()
+    path = export_xlsx(settings)
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="export_items.xlsx",
     )
 
 

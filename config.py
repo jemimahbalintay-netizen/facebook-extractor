@@ -123,6 +123,7 @@ class Settings:
     csv_path: Path = PROJECT_ROOT / "data" / "export_items.csv"
     markdown_path: Path = PROJECT_ROOT / "data" / "report.md"
     json_export_path: Path = PROJECT_ROOT / "data" / "export_items.json"
+    xlsx_path: Path = PROJECT_ROOT / "data" / "export_items.xlsx"
     log_path: Path = PROJECT_ROOT / "logs" / "extractor.log"
 
     def summary_enabled(self) -> bool:
@@ -159,6 +160,7 @@ def load_settings() -> Settings:
         csv_path=data_dir / "export_items.csv",
         markdown_path=data_dir / "report.md",
         json_export_path=data_dir / "export_items.json",
+        xlsx_path=data_dir / "export_items.xlsx",
         request_timeout=_env_int("REQUEST_TIMEOUT", 30),
         max_retries=_env_int("MAX_RETRIES", 3),
         retry_backoff=_env_float("RETRY_BACKOFF", 2.0),

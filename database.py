@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from models import ExtractedItem, SummaryPayload, TranscriptSegment
-from utils import json_dumps, utc_now_iso
+from utils import compute_content_hash, json_dumps, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ CREATE TABLE IF NOT EXISTS items (
     malformed INTEGER DEFAULT 0,
     error_message TEXT,
     extracted_at TEXT,
-    summarized_at TEXT
+    summarized_at TEXT,
+    content_hash TEXT,
+    summarized_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS summaries (
@@ -90,6 +93,35 @@ CREATE INDEX IF NOT EXISTS idx_items_type ON items(content_type);
 CREATE INDEX IF NOT EXISTS idx_items_extracted_at ON items(extracted_at);
 CREATE INDEX IF NOT EXISTS idx_segments_item ON transcript_segments(item_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_summaries_item ON summaries(item_id);
+
+-- Full-text search over title/caption/transcript (external content table:
+-- the index lives here, the text lives in items).  Kept in sync by triggers;
+-- a rebuild runs at init when the index is empty but items exist (upgrades).
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+    title,
+    caption,
+    transcript_text,
+    content='items',
+    content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER IF NOT EXISTS items_fts_ai AFTER INSERT ON items BEGIN
+    INSERT INTO items_fts(rowid, title, caption, transcript_text)
+    VALUES (new.id, new.title, new.caption, new.transcript_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_fts_ad AFTER DELETE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, title, caption, transcript_text)
+    VALUES ('delete', old.id, old.title, old.caption, old.transcript_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_fts_au AFTER UPDATE OF title, caption, transcript_text ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, title, caption, transcript_text)
+    VALUES ('delete', old.id, old.title, old.caption, old.transcript_text);
+    INSERT INTO items_fts(rowid, title, caption, transcript_text)
+    VALUES (new.id, new.title, new.caption, new.transcript_text);
+END;
 """
 
 # Columns stored on the items table, in insert order.
@@ -193,12 +225,46 @@ def db_session(db_path: Path | str | None = None) -> Iterator[sqlite3.Connection
 
 
 def init_db(db_path: Path | str | None = None) -> Path:
-    """Create the database and schema. Returns the database path."""
+    """Create the database and schema, apply migrations and index upkeep."""
     path = Path(db_path) if db_path else default_db_path()
     with db_session(path) as conn:
         conn.executescript(SCHEMA)
+        _migrate_columns(conn)
+        _ensure_fts_index(conn)
     logger.info("database initialised at %s", path)
     return path
+
+
+def _migrate_columns(conn: sqlite3.Connection) -> None:
+    """Additive, idempotent column migrations for databases from older versions."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(items)")}
+    for column in ("content_hash", "summarized_hash"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {column} TEXT")
+            logger.info("migration: added items.%s", column)
+
+
+def _ensure_fts_index(conn: sqlite3.Connection) -> None:
+    """Rebuild the FTS index when it is empty but items already exist.
+
+    Covers upgrades from pre-search databases (the virtual table is created
+    empty by the schema script) and manual index loss.
+
+    Note: ``SELECT COUNT(*) FROM items_fts`` is useless for external-content
+    tables — it reports the *content* row count.  The ``items_fts_docsize``
+    shadow table tracks indexed documents and is the reliable signal.
+
+    The rebuild must happen in this same init pass: between creating an empty
+    index and rebuilding it, the update triggers would issue FTS5 ``delete``
+    commands for values that were never indexed, which corrupts the index.
+    """
+    items_count = conn.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"]
+    if not items_count:
+        return
+    indexed = conn.execute("SELECT COUNT(*) AS c FROM items_fts_docsize").fetchone()["c"]
+    if not indexed:
+        conn.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
+        logger.info("search index rebuilt for %d items", int(items_count))
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +364,16 @@ def upsert_item(item: ExtractedItem, db_path: Path | str | None = None) -> int:
             "SELECT id FROM items WHERE source_url = ?", (item.source_url,)
         )
         result = cursor.fetchone()
-        return int(result["id"])
+        item_id = int(result["id"])
+        # Track the summarisable content so stale summaries can be detected.
+        conn.execute(
+            "UPDATE items SET content_hash = ? WHERE id = ?",
+            (
+                compute_content_hash(item.title, item.caption, item.transcript_text),
+                item_id,
+            ),
+        )
+        return item_id
 
 
 def get_item(item_id: int, db_path: Path | str | None = None) -> dict[str, Any] | None:
@@ -410,6 +485,11 @@ def save_summary(
     )
     with db_session(db_path) as conn:
         conn.execute(sql, row)
+        # Record which content revision this summary describes.
+        conn.execute(
+            "UPDATE items SET summarized_hash = content_hash WHERE id = ?",
+            (item_id,),
+        )
         cursor = conn.execute(
             "SELECT id FROM summaries WHERE item_id = ?", (item_id,)
         )
@@ -453,6 +533,181 @@ def items_with_summaries(
     for item in items:
         item["summary"] = summaries.get(int(item["id"]))
     return items
+
+
+# ---------------------------------------------------------------------------
+# Search, pagination, backlog helpers
+# ---------------------------------------------------------------------------
+
+# Whitelist of sortable columns for the dashboard / CLI (SQL-injection safe).
+SORTABLE_COLUMNS = {
+    "id": "i.id",
+    "extracted_at": "i.extracted_at",
+    "content_type": "i.content_type",
+    "status": "i.status",
+    "author": "COALESCE(i.author, i.page_name)",
+    "duration_seconds": "i.duration_seconds",
+    "view_count": "i.view_count",
+    "like_count": "i.like_count",
+    "comment_count": "i.comment_count",
+}
+
+
+def list_items_page(
+    db_path: Path | str | None = None,
+    content_type: str | None = None,
+    status: str | None = None,
+    sort: str = "id",
+    descending: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """One page of items plus the total count for the same filters."""
+    column = SORTABLE_COLUMNS.get(sort, "i.id")
+    direction = "DESC" if descending else "ASC"
+
+    clauses: list[str] = []
+    values: list[Any] = []
+    if content_type:
+        clauses.append("i.content_type = ?")
+        values.append(content_type)
+    if status:
+        clauses.append("i.status = ?")
+        values.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with db_session(db_path) as conn:
+        total = int(
+            conn.execute(f"SELECT COUNT(*) AS c FROM items i {where}", values).fetchone()["c"]
+        )
+        rows = conn.execute(
+            f"SELECT i.* FROM items i {where} "
+            f"ORDER BY {column} {direction}, i.id DESC LIMIT ? OFFSET ?",
+            [*values, max(1, int(limit)), max(0, int(offset))],
+        ).fetchall()
+    return [decode_item_row(row) for row in rows], total
+
+
+def summaries_for_ids(
+    ids: Iterable[int], db_path: Path | str | None = None
+) -> dict[int, dict[str, Any]]:
+    """Summaries for a specific set of item ids (used by paginated views)."""
+    id_list = [int(item_id) for item_id in ids]
+    if not id_list:
+        return {}
+    placeholders = ", ".join("?" for _ in id_list)
+    with db_session(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM summaries WHERE item_id IN ({placeholders})", id_list
+        ).fetchall()
+    return {int(row["item_id"]): decode_summary_row(row) for row in rows}
+
+
+def failed_urls(
+    db_path: Path | str | None = None,
+    statuses: Iterable[str] = ("needs_login", "needs_manual_import", "failed"),
+) -> list[str]:
+    """Source URLs whose last extraction did not succeed (for --retry-failed)."""
+    wanted = [str(status) for status in statuses]
+    if not wanted:
+        return []
+    placeholders = ", ".join("?" for _ in wanted)
+    with db_session(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT source_url FROM items WHERE status IN ({placeholders}) "
+            "ORDER BY id",
+            wanted,
+        ).fetchall()
+    return [str(row["source_url"]) for row in rows]
+
+
+def existing_statuses(db_path: Path | str | None = None) -> dict[str, str]:
+    """Map of source_url -> status for --skip-existing filtering."""
+    with db_session(db_path) as conn:
+        rows = conn.execute("SELECT source_url, status FROM items").fetchall()
+    return {str(row["source_url"]): str(row["status"] or "") for row in rows}
+
+
+def stale_summary_item_ids(db_path: Path | str | None = None) -> list[int]:
+    """Items whose summary no longer matches their stored content.
+
+    An item is stale when it has a summary, a recorded content hash, and that
+    hash differs from the hash recorded when the summary was written (or the
+    summary predates hashing and the content changed since).
+    """
+    with db_session(db_path) as conn:
+        rows = conn.execute(
+            "SELECT i.id FROM items i "
+            "JOIN summaries s ON s.item_id = i.id "
+            "WHERE i.content_hash IS NOT NULL "
+            "AND (i.summarized_hash IS NULL OR i.summarized_hash != i.content_hash) "
+            "ORDER BY i.id"
+        ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
+def _fts_query(raw: str) -> str:
+    """Turn user input into a safe FTS5 MATCH expression.
+
+    Every token is quoted (so operators like OR/NOT/NEAR or stray punctuation
+    cannot cause syntax errors); a trailing ``*`` enables prefix search.
+    """
+    parts: list[str] = []
+    for token in re.split(r"\s+", (raw or "").strip()):
+        if not token:
+            continue
+        prefix = token.endswith("*")
+        core = token[:-1] if prefix else token
+        core = core.replace('"', '""').strip()
+        if not core:
+            continue
+        parts.append(f'"{core}"' + ("*" if prefix else ""))
+    return " ".join(parts)
+
+
+def search_items(
+    query: str,
+    db_path: Path | str | None = None,
+    limit: int = 50,
+    status: str | None = None,
+    content_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Full-text search over title, caption and transcript.
+
+    Returns decoded item rows plus ``caption_snippet``, ``transcript_snippet``
+    and ``search_rank`` (lower bm25 = better).  Ranking is by relevance.
+    """
+    match = _fts_query(query)
+    if not match:
+        return []
+
+    clauses = ["items_fts MATCH ?"]
+    values: list[Any] = [match]
+    if status:
+        clauses.append("i.status = ?")
+        values.append(status)
+    if content_type:
+        clauses.append("i.content_type = ?")
+        values.append(content_type)
+
+    sql = (
+        "SELECT i.*, "
+        "snippet(items_fts, 1, '[', ']', '…', 12) AS caption_snippet, "
+        "snippet(items_fts, 2, '[', ']', '…', 12) AS transcript_snippet, "
+        "bm25(items_fts) AS search_rank "
+        "FROM items_fts JOIN items i ON i.id = items_fts.rowid "
+        f"WHERE {' AND '.join(clauses)} "
+        "ORDER BY search_rank LIMIT ?"
+    )
+    values.append(max(1, int(limit)))
+
+    with db_session(db_path) as conn:
+        try:
+            rows = conn.execute(sql, values).fetchall()
+        except sqlite3.OperationalError as exc:
+            logger.warning("search query failed for %r: %s", query, exc)
+            return []
+    return [decode_item_row(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

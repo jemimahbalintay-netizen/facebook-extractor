@@ -38,11 +38,19 @@ from config import load_settings  # noqa: E402
 from database import (  # noqa: E402
     counts_by,
     db_session,
+    existing_statuses,
+    failed_urls,
+    get_item,
     get_item_by_url,
     get_transcript_segments,
     init_db,
     list_items,
+    list_items_page,
     replace_transcript_segments,
+    save_summary,
+    search_items,
+    stale_summary_item_ids,
+    summaries_for_ids,
     update_item_fields,
     upsert_item,
 )
@@ -414,6 +422,158 @@ pipeline.append_jsonl(probe, settings)
 lines = settings.jsonl_path.read_text(encoding="utf-8").splitlines()
 last = json.loads(lines[-1])
 check("JSONL record appended and parseable", last["source_url"].endswith("/audit/jsonl"))
+
+print("\n=== 11. Search index, content hashes, backlog helpers ===")
+search_reel = ExtractedItem(
+    source_url="https://www.facebook.com/audit/search-reel",
+    content_type="reel",
+    status="extracted",
+    title="Agent patterns that ship",
+    caption="Three agent patterns for production.",
+    transcript_text="Planner executor and reflection loops explained.",
+    transcript_source="whisper",
+    view_count=5000,
+)
+search_id = upsert_item(search_reel, settings.database_path)
+search_post = ExtractedItem(
+    source_url="https://www.facebook.com/audit/search-post",
+    content_type="post",
+    status="partial",
+    title="Resibo tips",
+    caption="Filing receipts for freelancers (resibo).",
+    transcript_text="I-save ang resibo para sa taxes.",
+    needs_manual_import=True,
+)
+post_id = upsert_item(search_post, settings.database_path)
+
+hits = search_items("agent", settings.database_path)
+check("search matches title/caption", any(int(h["id"]) == search_id for h in hits), str([h["id"] for h in hits]))
+check(
+    "search returns a snippet",
+    any(h.get("transcript_snippet") or h.get("caption_snippet") for h in hits),
+)
+check(
+    "search matches transcript (Filipino term)",
+    [int(h["id"]) for h in search_items("resibo", settings.database_path)] == [post_id],
+)
+check(
+    "search uses AND semantics",
+    len(search_items("agent production", settings.database_path)) >= 1
+    and search_items("agent resibo", settings.database_path) == [],
+)
+check(
+    "search status filter",
+    all(h["status"] == "partial" for h in search_items("resibo", settings.database_path, status="partial"))
+    and search_items("resibo", settings.database_path, status="extracted") == [],
+)
+check("search tolerates FTS operators", search_items('" OR * NEAR( ', settings.database_path) == [])
+check("search blank query returns nothing", search_items("   ", settings.database_path) == [])
+check(
+    "search prefix wildcard",
+    any(int(h["id"]) == search_id for h in search_items("agent*", settings.database_path)),
+)
+check(
+    "trigger keeps index in sync",
+    any(int(h["id"]) == search_id for h in search_items("planner executor", settings.database_path)),
+)
+
+with db_session(settings.database_path) as conn:
+    # Simulate a database created before search existed: no index, no triggers.
+    # (Do not use FTS5 'delete-all' here: emptying an external-content index
+    # while the triggers stay active corrupts it on the next incremental
+    # delete — a real hazard worth documenting in the test itself.)
+    conn.execute("DROP TRIGGER IF EXISTS items_fts_ai")
+    conn.execute("DROP TRIGGER IF EXISTS items_fts_ad")
+    conn.execute("DROP TRIGGER IF EXISTS items_fts_au")
+    conn.execute("DROP TABLE IF EXISTS items_fts")
+check("search unavailable without an index", search_items("agent", settings.database_path) == [])
+init_db(settings.database_path)
+check("init_db recreates and rebuilds a missing index", len(search_items("agent", settings.database_path)) >= 1)
+upsert_item(search_reel, settings.database_path)
+check(
+    "triggers keep the rebuilt index live",
+    len(search_items("reflection", settings.database_path)) >= 1,
+)
+
+row = get_item(search_id, settings.database_path)
+check("content hash recorded on upsert", bool(row and row.get("content_hash")))
+demo_summary = SummaryPayload(
+    short_title="Agent patterns", english_summary="EN summary", filipino_summary="FIL buod"
+)
+save_summary(search_id, "test-model", demo_summary, settings.database_path)
+row2 = get_item(search_id, settings.database_path)
+check(
+    "summarized hash recorded with the summary",
+    row2["summarized_hash"] == row["content_hash"],
+)
+check("fresh summary is not stale", search_id not in stale_summary_item_ids(settings.database_path))
+changed = search_reel.model_copy(update={"transcript_text": "Completely different transcript about taxes."})
+upsert_item(changed, settings.database_path)
+check("changed content marks the summary stale", search_id in stale_summary_item_ids(settings.database_path))
+save_summary(search_id, "test-model", demo_summary, settings.database_path)
+check("re-summarising clears staleness", search_id not in stale_summary_item_ids(settings.database_path))
+
+update_item_fields(db_path=settings.database_path, item_id=post_id, status="needs_login")
+check("failed_urls picks retryable statuses", search_post.source_url in failed_urls(settings.database_path))
+status_map = existing_statuses(settings.database_path)
+custom_partial = failed_urls(settings.database_path, ["partial"])
+check(
+    "failed_urls honours custom statuses",
+    search_post.source_url not in custom_partial
+    and len(custom_partial) >= 1
+    and all(status_map.get(url) == "partial" for url in custom_partial),
+    f"{len(custom_partial)} partial urls",
+)
+check(
+    "existing_statuses maps urls to status",
+    existing_statuses(settings.database_path).get(search_reel.source_url) == "extracted",
+)
+
+page1, total1 = list_items_page(settings.database_path, limit=2, offset=0, sort="id", descending=True)
+page2, total2 = list_items_page(settings.database_path, limit=2, offset=2, sort="id", descending=True)
+check(
+    "list_items_page totals match",
+    total1 == total2 == len(list_items(settings.database_path)),
+    f"{total1} vs {total2}",
+)
+check(
+    "list_items_page pages are disjoint",
+    len(page1) == len(page2) == 2 and {i["id"] for i in page1}.isdisjoint({i["id"] for i in page2}),
+)
+sorted_rows, _ = list_items_page(settings.database_path, sort="view_count", descending=True, limit=3)
+views = [i["view_count"] or 0 for i in sorted_rows]
+check("sort by view_count descending", views == sorted(views, reverse=True), str(views))
+check("summaries_for_ids", set(summaries_for_ids([search_id], settings.database_path)) == {search_id})
+
+print("\n=== 12. XLSX export ===")
+from openpyxl import load_workbook  # noqa: E402
+
+from export.xlsx_exporter import export_xlsx  # noqa: E402
+
+xlsx_path = export_xlsx(settings, scratch_dir / "export_items.xlsx")
+workbook = load_workbook(xlsx_path)
+check("xlsx sheets", workbook.sheetnames == ["Items", "Summaries"], str(workbook.sheetnames))
+items_sheet = workbook["Items"]
+check(
+    "xlsx item row count",
+    items_sheet.max_row == len(list_items(settings.database_path)) + 1,
+    f"{items_sheet.max_row}",
+)
+headers = [cell.value for cell in items_sheet[1]]
+check("xlsx headers", "source_url" in headers and "transcript_text" in headers)
+source_col = headers.index("source_url") + 1
+caption_col = headers.index("caption") + 1
+poison_row = next(
+    row_index
+    for row_index in range(2, items_sheet.max_row + 1)
+    if str(items_sheet.cell(row=row_index, column=source_col).value or "").endswith("/audit/poison")
+)
+check(
+    "xlsx formula guard on caption",
+    str(items_sheet.cell(row=poison_row, column=caption_col).value).startswith("'="),
+    str(items_sheet.cell(row=poison_row, column=caption_col).value)[:20],
+)
+check("xlsx summaries sheet populated", workbook["Summaries"].max_row >= 2)
 
 # ---------------------------------------------------------------------------
 failed = [name for name, ok, _ in results if not ok]

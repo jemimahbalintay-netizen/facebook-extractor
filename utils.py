@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -18,6 +19,18 @@ logger = logging.getLogger(__name__)
 def utc_now_iso() -> str:
     """Current UTC time as an ISO-8601 string (seconds precision)."""
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def compute_content_hash(
+    title: str | None, caption: str | None, transcript: str | None
+) -> str:
+    """Stable hash of the summarisable content of an item.
+
+    Used to detect when stored content changed after a summary was generated
+    (see ``summarize --stale``).
+    """
+    payload = "\n".join(part or "" for part in (title, caption, transcript))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------

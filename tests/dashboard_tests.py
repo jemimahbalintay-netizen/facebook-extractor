@@ -240,6 +240,33 @@ check("raw JSON in details element", "<details class=\"panel\">" in item_html)
 check("time elements used", "<time datetime=" in item_html)
 check("no inline style attributes", 'style="' not in item_html)
 
+print("\n=== search, sorting, pagination, xlsx ===")
+search_page = client.get("/?q=whisper")
+check("search box present on index", 'type="search"' in html and 'name="q"' in html)
+check(
+    "search filters rows to matches",
+    "of 1" in search_page.text and "s-skipped" not in search_page.text,
+)
+check("search renders a snippet", "snippet" in search_page.text)
+check("search miss shows empty state", "No matches for" in client.get("/?q=zzzz").text)
+sorted_page = client.get("/?sort=view_count&order=desc")
+check("sorting marks aria-sort", 'aria-sort="descending"' in sorted_page.text)
+check("active sort link styled", "sort-link active desc" in sorted_page.text)
+check("sortable header links present", "?sort=extracted_at" in sorted_page.text)
+paged = client.get("/?per_page=2")
+check(
+    "pagination shows range and next link",
+    "1–2 of 3" in paged.text and ">Next<" in paged.text,
+)
+check("pagination shows previous link", ">Previous<" in client.get("/?per_page=2&page=2").text)
+xlsx_response = client.get("/export/xlsx")
+check(
+    "xlsx route serves a workbook",
+    xlsx_response.status_code == 200 and xlsx_response.content[:2] == b"PK",
+    str(xlsx_response.status_code),
+)
+check("xlsx download link in nav", "/export/xlsx" in html)
+
 print("\n=== security headers ===")
 headers = index.headers
 check("CSP strict", headers.get("content-security-policy", "").startswith("default-src 'none'"), headers.get("content-security-policy"))

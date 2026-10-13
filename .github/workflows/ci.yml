@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
@@ -61,11 +61,37 @@ jobs:
           pip install -r requirements.txt
           pip install langdetect
 
-      - name: Unit tests (90 checks)
+      - name: Unit tests (93 checks)
         run: python tests/unit_tests.py
 
-      - name: Audit suite (54 checks)
+      - name: Audit suite (83 checks)
         run: python tests/audit_suite.py
 
-      - name: Dashboard tests (55 checks)
+      - name: Dashboard tests (66 checks)
+        run: python tests/dashboard_tests.py
+
+  windows:
+    name: offline suites (Windows, Python 3.14)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install langdetect
+
+      - name: Unit tests
+        run: python tests/unit_tests.py
+
+      - name: Audit suite
+        run: python tests/audit_suite.py
+
+      - name: Dashboard tests
         run: python tests/dashboard_tests.py

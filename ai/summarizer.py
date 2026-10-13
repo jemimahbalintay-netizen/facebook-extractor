@@ -124,13 +124,24 @@ def summarize_pending(
     limit: int | None = None,
     missing_only: bool = True,
     delay_seconds: float = 1.0,
+    stale_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Summarize stored items straight from the database.
 
-    ``missing_only`` skips items that already have a summary.  Returns one
-    result record per considered item.
+    Selection modes:
+    * ``stale_only`` — only items whose stored content changed after their
+      summary was generated (see ``summarize --stale``);
+    * ``missing_only`` — skip items that already have a summary;
+    * neither — summarize everything considered.
+
+    Returns one result record per considered item.
     """
-    from database import items_with_summaries, save_summary, update_item_fields
+    from database import (
+        items_with_summaries,
+        save_summary,
+        stale_summary_item_ids,
+        update_item_fields,
+    )
     from utils import utc_now_iso
 
     records = items_with_summaries(settings.database_path)
@@ -139,6 +150,9 @@ def summarize_pending(
         return (url or "").strip().rstrip("/").lower()
 
     wanted = {_normalize(url) for url in (urls or [])}
+    stale_ids: set[int] = set()
+    if stale_only:
+        stale_ids = set(stale_summary_item_ids(settings.database_path))
     results: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
 
@@ -146,7 +160,10 @@ def summarize_pending(
         source_url = record.get("source_url") or ""
         if wanted and _normalize(source_url) not in wanted:
             continue
-        if missing_only and record.get("summary"):
+        if stale_only:
+            if int(record["id"]) not in stale_ids:
+                continue
+        elif missing_only and record.get("summary"):
             continue
         if not _has_summariable_content(record):
             results.append(

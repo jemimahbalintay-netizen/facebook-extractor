@@ -50,6 +50,7 @@ from extractor.ytdlp_extractor import (  # noqa: E402
     parse_compact_number,
 )
 from utils import (  # noqa: E402
+    compute_content_hash,
     detect_language,
     extract_external_links,
     extract_hashtags,
@@ -304,6 +305,17 @@ check("safe_int handles comma text", safe_int("1,234") == 1234)
 check("safe_int invalid", safe_int("abc") is None)
 check("detect_language empty", detect_language("") is None)
 check("detect_language english", (detect_language("This is a simple English sentence about software and testing.") or "").startswith("en"))
+
+hash_one = compute_content_hash("t", "c", "x")
+check(
+    "content hash deterministic (sha256)",
+    hash_one == compute_content_hash("t", "c", "x") and len(hash_one) == 64,
+)
+check("content hash changes with content", compute_content_hash("t", "c", "y") != hash_one)
+check(
+    "content hash treats None as empty",
+    compute_content_hash(None, None, None) == compute_content_hash("", "", ""),
+)
 
 failed = [name for name, ok, _ in results if not ok]
 print(f"\n{'=' * 60}")

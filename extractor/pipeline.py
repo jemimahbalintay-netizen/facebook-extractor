@@ -455,6 +455,35 @@ def load_urls_from_file(path: str | Path) -> list[str]:
     return urls
 
 
+# Statuses that it is worth re-attempting (everything else counts as "done").
+RETRYABLE_STATUSES = ("failed", "needs_login", "needs_manual_import")
+
+
+def filter_existing_urls(
+    urls: Iterable[str],
+    settings: Settings,
+    retryable: Iterable[str] = RETRYABLE_STATUSES,
+) -> tuple[list[str], int]:
+    """Drop URLs that already have content (``ingest --skip-existing``).
+
+    URLs not present in the database are kept, as are URLs whose last run
+    failed (they are worth retrying).  Returns ``(kept_urls, skipped_count)``.
+    """
+    from database import existing_statuses
+
+    statuses = existing_statuses(settings.database_path)
+    allowed = {str(status) for status in retryable}
+    kept: list[str] = []
+    skipped = 0
+    for url in urls:
+        status = statuses.get(url)
+        if status is None or status in allowed:
+            kept.append(url)
+        else:
+            skipped += 1
+    return kept, skipped
+
+
 def _record_failure(url: str, exc: Exception, settings: Settings) -> dict[str, Any]:
     """Persist a failed URL so nothing is lost when a crash occurs."""
     classification = classify(url)

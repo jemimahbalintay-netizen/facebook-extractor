@@ -10,6 +10,13 @@
 </head>
 <body>
 <main>
+{% macro sortable(col, label) -%}
+<th scope="col"{% if sort == col %} aria-sort="{{ 'descending' if order == 'desc' else 'ascending' }}"{% endif %}>
+  <a class="sort-link{% if sort == col %} active {{ order }}{% endif %}"
+     href="?{{ base_params }}{% if base_params %}&amp;{% endif %}sort={{ col }}&amp;order={{ 'asc' if (sort == col and order == 'desc') else 'desc' }}">{{ label }}</a>
+</th>
+{%- endmacro %}
+
 <header class="page-head">
   <div>
     <h1>Facebook Extractor</h1>
@@ -17,6 +24,7 @@
   </div>
   <nav aria-label="Downloads">
     <a href="/export/csv">Download CSV</a>
+    <a href="/export/xlsx">Download XLSX</a>
     <a href="/export/markdown">Download Markdown</a>
     <a href="/export/json">Download JSON</a>
     <a href="/items.json">items.json</a>
@@ -32,8 +40,11 @@
 </p>
 
 <form class="filters" method="get" action="/">
+  <label>Search
+    <input type="search" name="q" value="{{ q }}" placeholder="title, caption, transcript" size="24">
+  </label>
   <label>Status
-    <select name="status" onchange="this.form.submit()">
+    <select name="status">
       <option value="">all</option>
       {% for s in ['extracted', 'partial', 'needs_login', 'needs_manual_import', 'failed', 'skipped', 'pending'] %}
       <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
@@ -41,17 +52,17 @@
     </select>
   </label>
   <label>Type
-    <select name="content_type" onchange="this.form.submit()">
+    <select name="content_type">
       <option value="">all</option>
       {% for t in ['video', 'reel', 'post', 'malformed', 'unknown', 'homepage'] %}
       <option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t }}</option>
       {% endfor %}
     </select>
   </label>
-  {% if filter_status or filter_type %}
-  <a class="clear-filters" href="/">Clear filters</a>
+  <button type="submit">Apply</button>
+  {% if filter_status or filter_type or q %}
+  <a class="clear-filters" href="/">Clear</a>
   {% endif %}
-  <noscript><button type="submit">Apply filters</button></noscript>
 </form>
 
 {% if items %}
@@ -59,16 +70,16 @@
   <table aria-label="Extracted items">
     <thead>
       <tr>
-        <th scope="col">ID</th>
-        <th scope="col">Type</th>
+        {{ sortable('id', 'ID') }}
+        {{ sortable('content_type', 'Type') }}
         <th scope="col">Title</th>
-        <th scope="col">Author</th>
-        <th scope="col">Status</th>
+        {{ sortable('author', 'Author') }}
+        {{ sortable('status', 'Status') }}
         <th scope="col">Login</th>
         <th scope="col">Manual</th>
-        <th scope="col">Duration</th>
-        <th scope="col">Views</th>
-        <th scope="col">Extracted at</th>
+        {{ sortable('duration_seconds', 'Duration') }}
+        {{ sortable('view_count', 'Views') }}
+        {{ sortable('extracted_at', 'Extracted at') }}
       </tr>
     </thead>
     <tbody>
@@ -78,6 +89,9 @@
         <td>{{ item.content_type }}</td>
         <td>
           <a class="title" href="/item/{{ item.id }}">{{ item.title or (item.caption and truncate(item.caption, 80)) or '(no title)' }}</a>
+          {% if q and (item.transcript_snippet or item.caption_snippet) %}
+          <div class="small snippet">{{ item.transcript_snippet or item.caption_snippet }}</div>
+          {% endif %}
           {% if item.summary and item.summary.short_title %}
           <div class="small">AI: {{ item.summary.short_title }}</div>
           {% endif %}
@@ -97,9 +111,24 @@
     </tbody>
   </table>
 </div>
+
+<div class="pager">
+  <span class="small">{{ show_from }}–{{ show_to }} of {{ total }}{% if q %} for “{{ q }}”{% endif %}</span>
+  {% if page > 1 %}
+  <a href="?{{ base_params }}{% if base_params %}&amp;{% endif %}sort={{ sort }}&amp;order={{ order }}&amp;page={{ page - 1 }}">Previous</a>
+  {% endif %}
+  {% if page < pages %}
+  <a href="?{{ base_params }}{% if base_params %}&amp;{% endif %}sort={{ sort }}&amp;order={{ order }}&amp;page={{ page + 1 }}">Next</a>
+  {% endif %}
+  <span class="small">page {{ page }} / {{ pages }}</span>
+</div>
 {% else %}
 <div class="panel empty">
+  {% if q %}
+  No matches for <strong>{{ q }}</strong> — <a href="/">clear the search</a>.
+  {% else %}
   No items yet. Run <code>python main.py ingest --file seed_urls.txt</code> first.
+  {% endif %}
 </div>
 {% endif %}
 </main>

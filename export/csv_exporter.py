@@ -71,12 +71,12 @@ def _join_list(value: Any) -> str:
 
 # Spreadsheet formula injection protection (OWASP CSV injection): a cell that
 # starts with these characters is interpreted as a formula by Excel/Sheets.
-_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
-def _csv_safe(value: Any) -> Any:
+def safe_cell(value: Any) -> Any:
     """Neutralise spreadsheet formulas by prefixing them with an apostrophe."""
-    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+    if isinstance(value, str) and value.startswith(FORMULA_PREFIXES):
         return "'" + value
     return value
 
@@ -111,7 +111,7 @@ def export_csv(settings: Settings, output_path: Path | None = None) -> Path:
                 "virality_signals": _join_list(summary.get("virality_signals")),
                 "call_to_action": summary.get("call_to_action") or "",
             }
-            writer.writerow({key: _csv_safe(value) for key, value in row.items()})
+            writer.writerow({key: safe_cell(value) for key, value in row.items()})
 
     logger.info("CSV export written: %s (%d rows)", path, len(items))
     return path
